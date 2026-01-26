@@ -1,0 +1,30 @@
+shader_type canvas_item;
+
+uniform vec2 player_uv;
+uniform float vision_radius;      // 视野半径（UV单位）
+uniform sampler2D mask_texture;   // 探索遮罩
+uniform sampler2D noise_texture;  // 可选噪波纹理
+uniform float time;
+uniform vec4 fog_color : source_color = vec4(0.8, 0.8, 0.8, 1.0);
+
+void fragment() {
+    vec2 uv = UV;
+
+    // 玩家圆形视野
+    float d = distance(uv, player_uv);
+    float vision = smoothstep(vision_radius * 0.6, vision_radius, d);
+
+    // 探索遮罩（1 = 未探索, 0 = 已探索）
+    float explored = texture(mask_texture, uv).r;
+
+    // 可选噪波，让雾有自然波动
+    float noise = texture(noise_texture, uv * 3.0 + time * 0.05).r;
+    noise = (noise - 0.5) * 0.3;
+
+    float flicker = sin(time * 0.5 + uv.x * 10.0) * 0.05;
+
+    float fog = max(vision, 1.0 - explored) + noise + flicker;
+    fog = clamp(fog, 0.0, 1.0);
+
+    COLOR = vec4(fog_color.rgb, fog_color.a * fog);
+}
