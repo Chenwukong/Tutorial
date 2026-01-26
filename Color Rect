@@ -1,0 +1,95 @@
+extends ColorRect
+
+@export var tile_size: int = 32
+
+@export var vision_radius_px: float = 120.0  # 玩家可视半径（像素）
+@onready var player = get_tree().current_scene.get_node("Player")
+
+var grid_width: int
+var grid_height: int
+var mask_image: Image
+var mask_texture: ImageTexture
+
+var last_grid_x: int = -999
+var last_grid_y: int = -999
+
+func _ready():
+	call_deferred("setup_grid")
+
+func setup_grid():
+	if size == Vector2.ZERO:
+		call_deferred("setup_grid")
+		return
+	
+	grid_width = int(size.x / tile_size) + 1
+	grid_height = int(size.y / tile_size) + 1
+	
+	mask_image = Image.create(grid_width, grid_height, false, Image.FORMAT_RGBA8)
+	mask_image.fill(Color.BLACK)
+	mask_texture = ImageTexture.new()
+	mask_texture.set_image(mask_image)
+	
+	# Shader 材质
+	if material == null:
+		var shader = Shader.new()
+		shader.code = preload("res://战争迷雾/fog_shader.gdshader").code
+		var mat = ShaderMaterial.new()
+		mat.shader = shader
+	
+		mat.set_shader_parameter("mask_texture", mask_texture)
+		material = mat
+	
+	print("网格大小: %d x %d" % [grid_width, grid_height])
+
+func _process(_delta):
+	if player == null or material == null:
+		return
+	
+	var player_pos = player.global_position
+	var local_pos = player_pos - global_position
+	
+	# UV 坐标 [0,1]
+	var uv_pos = local_pos / size
+	
+	# Shader 圆形视野
+	var vision_radius_uv = vision_radius_px / max(size.x, size.y)
+	material.set_shader_parameter("player_uv", uv_pos)
+	material.set_shader_parameter("vision_radius", vision_radius_uv)
+	
+	if Rect2(Vector2.ZERO, size).has_point(local_pos):
+		# 同步逻辑探索半径（格子单位）
+		var brush_radius = ceil(vision_radius_px / tile_size)
+		update_vision(local_pos, brush_radius)
+
+func update_vision(pos: Vector2, brush_radius: int):
+	var grid_x = int(pos.x / tile_size)
+	var grid_y = int(pos.y / tile_size)
+	
+	if grid_x == last_grid_x and grid_y == last_grid_y:
+		return
+	
+	last_grid_x = grid_x
+	last_grid_y = grid_y
+	
+	mask_image.fill(Color.BLACK)
+	
+	var radius = float(brush_radius)
+	
+	for dy in range(-brush_radius - 1, brush_radius + 2):
+		for dx in range(-brush_radius - 1, brush_radius + 2):
+			var distance = sqrt(float(dx * dx + dy * dy))
+			
+			var x = grid_x + dx
+			var y = grid_y + dy
+			
+			if x < 0 or x >= grid_width or y < 0 or y >= grid_height:
+				continue
+			
+			var alpha = 1.0
+			if distance > radius:
+				alpha = 1.0 - (distance - radius)
+				alpha = clamp(alpha, 0.0, 1.0)
+			
+			mask_image.set_pixel(x, y, Color(1, 1, 1, alpha))
+	
+	mask_texture.update(mask_image)
